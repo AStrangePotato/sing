@@ -4,7 +4,7 @@ import { Text, View, StyleSheet} from "react-native";
 export default function Index() {
   return (
     <View style={styles.container}>
-      <Text>Edit app/index.tsx to easddit this screen.</Text>
+      <Text>Test</Text>
       <Link href={"/record"}>Record</Link>
     </View>
   );
