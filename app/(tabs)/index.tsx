@@ -4,7 +4,7 @@ import { Text, View, StyleSheet} from "react-native";
 export default function Index() {
   return (
     <View style={styles.container}>
-      <Text>Test</Text>
+      <Text>Testasd</Text>
       <Link href={"/record"}>Record</Link>
     </View>
   );
