@@ -8,14 +8,14 @@ import {
   ScrollView,
   SafeAreaView,
 } from 'react-native';
-import { Play, Square, Pause } from 'lucide-react-native'; // Removed RotateCcw
+import { Play, Square, Pause, ChevronUp, ChevronDown } from 'lucide-react-native';
 import { useMicrophonePermission } from '../../hooks/useMicrophonePermission';
 import Pitchy from 'react-native-pitchy';
 import { Audio } from 'expo-av';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams } from 'expo-router';
 import { initialSongs } from '../../data/songdata';
 import { useSharedValue, withTiming } from 'react-native-reanimated';
-import TimelineSelector from '../../components/TimelineSelector';
+import TimelineSelector, { TIMELINE_WIDTH } from '../../components/TimelineSelector';
 import PitchVisualizer from '../../components/PitchVisualizer';
 
 // Helper functions
@@ -46,381 +46,360 @@ const getNote = (freq) => {
 const isValidFrequency = (freq) => freq >= 100 && freq <= 800;
 
 export default function PitchTrackerScreen() {
-  const router = useRouter();
   const params = useLocalSearchParams();
   const { songId } = params;
   const permissionGranted = useMicrophonePermission();
 
   // Refs
   const pitchSubscriptionRef = useRef(null);
-  const recordingActualStartTimeRef = useRef(0); // Stores the exact system timestamp when recording started
+  const recordingActualStartTimeRef = useRef(0);
   const animationFrameIdRef = useRef(null);
 
   // Core state
   const [selectedSong, setSelectedSong] = useState(null);
   const [sound, setSound] = useState(null);
   const [totalDuration, setTotalDuration] = useState(0);
+  const [originalReferencePitches, setOriginalReferencePitches] = useState([]);
   const [referencePitches, setReferencePitches] = useState([]);
+  const [octaveShift, setOctaveShift] = useState(0);
 
   // User interaction state
-  const [selectedSeekTime, setSelectedSeekTime] = useState(0); // The time user has manually selected on the timeline
-  const [currentDisplayTime, setCurrentDisplayTime] = useState(0); // The time currently shown on the timeline/visualizer
+  const [selectedSeekTime, setSelectedSeekTime] = useState(0);
+  const [currentDisplayTime, setCurrentDisplayTime] = useState(0);
 
   // Recording state
   const [frequency, setFrequency] = useState(0);
   const [note, setNote] = useState('--');
   const [userPitches, setUserPitches] = useState([]);
   const [isRecording, setIsRecording] = useState(false);
+  const [recording, setRecording] = useState(null);
+  const [userRecordingUri, setUserRecordingUri] = useState(null);
 
   // Playback state
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
+  const [userSound, setUserSound] = useState(null);
+  const [isPlayingUserRecording, setIsPlayingUserRecording] = useState(false);
 
-  // Animated scrubber position - controlled externally by this component, passed to TimelineSelector
+  // Animated scrubber position
   const scrubberPosition = useSharedValue(0);
+
+  // Refs to hold latest state for animation loop to prevent stale closures
+  const isRecordingRef = useRef(isRecording);
+  useEffect(() => { isRecordingRef.current = isRecording; }, [isRecording]);
+
+  const selectedSeekTimeRef = useRef(selectedSeekTime);
+  useEffect(() => { selectedSeekTimeRef.current = selectedSeekTime; }, [selectedSeekTime]);
 
   // Load song data
   useEffect(() => {
-    const loadSong = () => {
-      const song = songId
-        ? initialSongs.find(s => s.id === songId)
-        : initialSongs[0]; // Fallback to first song if no songId
-
-      if (song) {
-        setSelectedSong(song);
-        const duration = parseDuration(song.duration);
-        setTotalDuration(duration);
-
-        const convertedPitches = song.pitches.map(p => ({
-          time: p.time,
-          freq: midiToFreq(p.pitch),
-        }));
-        setReferencePitches(convertedPitches);
-        // Reset state for new song
-        setCurrentDisplayTime(0);
-        setSelectedSeekTime(0);
-        scrubberPosition.value = withTiming(0);
-        setUserPitches([]);
-        setIsPlayingAudio(false);
-        setIsRecording(false);
-        if (sound) { // If a sound object exists from a previous song, stop it
-          sound.stopAsync().catch(e => console.error("Error stopping old sound:", e));
-        }
-      }
-    };
-
-    loadSong();
+    const song = songId ? initialSongs.find(s => s.id === songId) : initialSongs[0];
+    if (song) {
+      setSelectedSong(song);
+      const duration = parseDuration(song.duration);
+      setTotalDuration(duration);
+      const originalPitches = song.pitches.map(p => ({ time: p.time, freq: midiToFreq(p.pitch) }));
+      setOriginalReferencePitches(originalPitches);
+      setReferencePitches(originalPitches);
+      setOctaveShift(0);
+      setCurrentDisplayTime(0);
+      setSelectedSeekTime(0);
+      scrubberPosition.value = withTiming(0);
+      setUserPitches([]);
+      setIsPlayingAudio(false);
+      setIsRecording(false);
+      setUserRecordingUri(null);
+      sound?.unloadAsync();
+      userSound?.unloadAsync();
+    }
   }, [songId]);
 
-  // Audio setup
+  // Apply octave shift
+  useEffect(() => {
+    if (originalReferencePitches.length > 0) {
+      const shiftFactor = Math.pow(2, octaveShift);
+      const shiftedPitches = originalReferencePitches.map(p => ({
+        ...p,
+        freq: p.freq * shiftFactor,
+      }));
+      setReferencePitches(shiftedPitches);
+    }
+  }, [octaveShift, originalReferencePitches]);
+
+  // Audio setup for original song
   useEffect(() => {
     const setupAudio = async () => {
       if (!selectedSong?.filename) return;
-
       try {
-        if (sound) {
-          await sound.unloadAsync();
-        }
-
+        await sound?.unloadAsync();
         const { sound: newSound } = await Audio.Sound.createAsync(
           selectedSong.filename,
-          { shouldPlay: false }
+          { shouldPlay: false, progressUpdateIntervalMillis: 30 }
         );
-
         setSound(newSound);
         newSound.setOnPlaybackStatusUpdate(onPlaybackStatusUpdate);
-      } catch (error) {
-        console.error('Error loading audio:', error);
-      }
+      } catch (error) { console.error('Error loading audio:', error); }
     };
-
     setupAudio();
+    return () => { sound?.unloadAsync(); };
+  }, [selectedSong]);
 
-    return () => {
-      if (sound) {
-        sound.unloadAsync();
-      }
-    };
-  }, [selectedSong]); // Re-run when selectedSong changes
-
-  // Audio playback status handler
+  // Playback status handlers
   const onPlaybackStatusUpdate = useCallback((status) => {
-    if (status.isLoaded && !isRecording) { // Only update from audio if not recording
+    if (status.isLoaded && !isRecordingRef.current) {
       const positionSeconds = status.positionMillis / 1000;
       setCurrentDisplayTime(positionSeconds);
       setIsPlayingAudio(status.isPlaying);
-
-      const timelineWidth = 300; // Match TimelineSelector's width
-      scrubberPosition.value = withTiming((positionSeconds / totalDuration) * timelineWidth, { duration: 50 });
-
+      scrubberPosition.value = withTiming((positionSeconds / totalDuration) * TIMELINE_WIDTH, { duration: 30 });
       if (status.didJustFinish) {
         setIsPlayingAudio(false);
-        // Reset to selectedSeekTime
-        setCurrentDisplayTime(selectedSeekTime);
-        scrubberPosition.value = withTiming((selectedSeekTime / totalDuration) * timelineWidth);
+        sound.setPositionAsync(selectedSeekTimeRef.current * 1000);
+        setCurrentDisplayTime(selectedSeekTimeRef.current);
+        scrubberPosition.value = withTiming((selectedSeekTimeRef.current / totalDuration) * TIMELINE_WIDTH);
       }
     }
-  }, [selectedSeekTime, totalDuration, isRecording]);
+  }, [totalDuration, sound]);
 
-  // Timeline selector handlers
+  const onUserPlaybackStatusUpdate = useCallback(async (status) => {
+    if (!status.isLoaded) {
+      if (status.error) console.error(`User playback error: ${status.error}`);
+      return;
+    }
+
+    const positionSeconds = status.positionMillis / 1000;
+    const displayTime = selectedSeekTimeRef.current + positionSeconds;
+    setCurrentDisplayTime(displayTime);
+    setIsPlayingUserRecording(status.isPlaying);
+    scrubberPosition.value = withTiming((displayTime / totalDuration) * TIMELINE_WIDTH, { duration: 30 });
+
+    if (status.didJustFinish) {
+      setIsPlayingUserRecording(false);
+      setCurrentDisplayTime(selectedSeekTimeRef.current);
+      scrubberPosition.value = withTiming((selectedSeekTimeRef.current / totalDuration) * TIMELINE_WIDTH);
+      try {
+        await userSound?.stopAsync();
+        await userSound?.setPositionAsync(0);
+      } catch (error) {
+        console.error('Error stopping/resetting user sound:', error);
+      }
+    }
+  }, [totalDuration, userSound]);
+
+  // Timeline selector handler
   const handleTimelineChange = (newTime) => {
-    // Only allow changing seek time if not playing or recording
-    if (!isPlayingAudio && !isRecording) {
+    if (!isPlayingAudio && !isRecording && !isPlayingUserRecording) {
       setSelectedSeekTime(newTime);
-      setCurrentDisplayTime(newTime); // Update current display immediately
-      const timelineWidth = 300;
-      scrubberPosition.value = withTiming((newTime / totalDuration) * timelineWidth);
+      setCurrentDisplayTime(newTime);
+      scrubberPosition.value = withTiming((newTime / totalDuration) * TIMELINE_WIDTH);
+      sound?.setPositionAsync(newTime * 1000);
     }
   };
 
-  // Function to update scrubber during recording
-  const animateScrubberDuringRecording = useCallback(() => {
-    if (isRecording && totalDuration > 0) { // Ensure totalDuration is valid
-      const elapsedSinceRecordingStart = (Date.now() - recordingActualStartTimeRef.current) / 1000;
-      const newCurrentDisplayTime = selectedSeekTime + elapsedSinceRecordingStart;
-
-      // Clamp time to total duration
-      const clampedTime = Math.min(newCurrentDisplayTime, totalDuration);
-
-      setCurrentDisplayTime(clampedTime); // This updates the state that TimelineSelector consumes
-
-      const timelineWidth = 300; // Match TimelineSelector's width
-      scrubberPosition.value = withTiming((clampedTime / totalDuration) * timelineWidth, { duration: 50 });
-
-      if (clampedTime >= totalDuration) {
-        // If recording reaches the end of the song, stop it
-        handleRecord(); // This will toggle isRecording and stop pitch detection
+  // Pitch detection logic
+  const stopPitchDetection = useCallback(async () => {
+    try {
+      await Pitchy.stop();
+      pitchSubscriptionRef.current?.remove();
+      pitchSubscriptionRef.current = null;
+      if (animationFrameIdRef.current) {
         cancelAnimationFrame(animationFrameIdRef.current);
         animationFrameIdRef.current = null;
+      }
+      setFrequency(0);
+      setNote('--');
+    } catch (error) { console.error('Error stopping pitch detection:', error); }
+  }, []);
+
+  const animateScrubberDuringRecording = useCallback(() => {
+    if (isRecordingRef.current && totalDuration > 0) {
+      const elapsed = (Date.now() - recordingActualStartTimeRef.current) / 1000;
+      const newTime = selectedSeekTimeRef.current + elapsed;
+      const clampedTime = Math.min(newTime, totalDuration);
+      setCurrentDisplayTime(clampedTime);
+      scrubberPosition.value = withTiming((clampedTime / totalDuration) * TIMELINE_WIDTH, { duration: 30 });
+      if (clampedTime >= totalDuration) {
+        handleRecord(); // Auto-stop
       } else {
         animationFrameIdRef.current = requestAnimationFrame(animateScrubberDuringRecording);
       }
     }
-  }, [isRecording, selectedSeekTime, totalDuration, handleRecord]);
+  }, [totalDuration]);
 
-
-  // Pitch detection
-  const startPitchDetection = async () => {
+  const startPitchDetection = useCallback(async () => {
     try {
-      const config = {
-        bufferSize: 4096,
-        minVolume: 60,
-      };
-
-      await Pitchy.init(config);
-      recordingActualStartTimeRef.current = Date.now(); // Mark the exact start of recording
+      await Pitchy.init({ bufferSize: 2048, minVolume: 60 });
+      recordingActualStartTimeRef.current = Date.now();
       animationFrameIdRef.current = requestAnimationFrame(animateScrubberDuringRecording);
-
-      const handlePitchDetected = (data) => {
-        const detectedFreq = data.pitch;
-
-        if (isValidFrequency(detectedFreq)) {
-          setFrequency(detectedFreq);
-          setNote(getNote(detectedFreq));
-
-          const elapsedSinceRecordingStart = (Date.now() - recordingActualStartTimeRef.current) / 1000;
-          const pitchRecordingTime = selectedSeekTime + elapsedSinceRecordingStart; // Time for pitch data
-
-          if (pitchRecordingTime <= totalDuration) {
-            setUserPitches(prev => [...prev, {
-              time: pitchRecordingTime, // Store pitch data with its absolute song time
-              freq: detectedFreq
-            }]);
+      pitchSubscriptionRef.current = Pitchy.addListener((data) => {
+        if (isValidFrequency(data.pitch)) {
+          setFrequency(data.pitch);
+          setNote(getNote(data.pitch));
+          const elapsed = (Date.now() - recordingActualStartTimeRef.current) / 1000;
+          const pitchTime = selectedSeekTimeRef.current + elapsed;
+          if (pitchTime <= totalDuration) {
+            setUserPitches(prev => [...prev, { time: pitchTime, freq: data.pitch }]);
           }
         } else {
           setFrequency(0);
           setNote('--');
         }
-      };
-
-      pitchSubscriptionRef.current = Pitchy.addListener(handlePitchDetected);
+      });
       await Pitchy.start();
-    } catch (error) {
-      console.error('Error starting pitch detection:', error);
-    }
-  };
-
-  const stopPitchDetection = async () => {
-    try {
-      await Pitchy.stop();
-
-      if (pitchSubscriptionRef.current) {
-        pitchSubscriptionRef.current.remove();
-        pitchSubscriptionRef.current = null;
-      }
-      if (animationFrameIdRef.current) {
-        cancelAnimationFrame(animationFrameIdRef.current);
-        animationFrameIdRef.current = null;
-      }
-
-      setFrequency(0);
-      setNote('--');
-    } catch (error) {
-      console.error('Error stopping pitch detection:', error);
-    }
-  };
+    } catch (error) { console.error('Error starting pitch detection:', error); }
+  }, [animateScrubberDuringRecording, totalDuration]);
 
   // Control handlers
   const handlePlayPauseAudio = async () => {
-    if (!sound) return;
-
+    if (!sound || !selectedSong || isRecording || isPlayingUserRecording) return;
     try {
-      if (isRecording) { // If recording, stop it first
-        await stopPitchDetection();
-        setIsRecording(false);
-      }
-
       if (isPlayingAudio) {
         await sound.pauseAsync();
       } else {
-        await sound.setPositionAsync(selectedSeekTime * 1000); // Start from selected seek time
-        await sound.playAsync();
+        await sound.playFromPositionAsync(selectedSeekTime * 1000);
       }
-    } catch (error) {
-      console.error('Error playing/pausing audio:', error);
-    }
+    } catch (error) { console.error('Error playing/pausing audio:', error); }
   };
 
   const handleRecord = async () => {
     try {
       if (isRecording) {
-        // Stop recording
         setIsRecording(false);
-        await stopPitchDetection(); // This stops pitch detection and the scrubber animation
-        // After stopping, reset current display time to the selected seek time for next interaction
-        setCurrentDisplayTime(selectedSeekTime);
-        const timelineWidth = 300;
-        scrubberPosition.value = withTiming((selectedSeekTime / totalDuration) * timelineWidth);
-      } else {
-        // Start recording
-        if (isPlayingAudio) {
-          await sound.pauseAsync(); // Pause audio if playing
-          setIsPlayingAudio(false);
+        await stopPitchDetection();
+        if (recording) {
+          await recording.stopAndUnloadAsync();
+          const uri = recording.getURI();
+          setUserRecordingUri(uri);
+          setRecording(null);
         }
-        setUserPitches([]); // Clear previous user pitches
+        setCurrentDisplayTime(selectedSeekTime);
+        scrubberPosition.value = withTiming((selectedSeekTime / totalDuration) * TIMELINE_WIDTH);
+      } else {
+        if (isPlayingAudio) await sound?.pauseAsync();
+        if (isPlayingUserRecording) {
+          await userSound?.pauseAsync();
+          setIsPlayingUserRecording(false);
+        }
+        if (userSound) {
+          await userSound.unloadAsync();
+          setUserSound(null);
+        }
+        setUserPitches([]);
+        setUserRecordingUri(null);
         setIsRecording(true);
-        setCurrentDisplayTime(selectedSeekTime); // Ensure display time starts from seek time
-        await startPitchDetection(); // This will also start the scrubber animation
+        setCurrentDisplayTime(selectedSeekTime);
+        await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
+        const { recording: newRecording } = await Audio.Recording.createAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
+        setRecording(newRecording);
+        await startPitchDetection();
       }
-    } catch (error) {
-      console.error('Error handling record:', error);
-    }
+    } catch (error) { console.error('Error handling record:', error); }
   };
 
-  // Cleanup on unmount
+  const handlePlayUserRecording = async () => {
+    if (!userRecordingUri || isRecording || isPlayingAudio) return;
+    try {
+      if (isPlayingUserRecording && userSound) {
+        await userSound.pauseAsync();
+      } else {
+        if (userSound) {
+          await userSound.playAsync();
+        } else {
+          const { sound: newSound } = await Audio.Sound.createAsync(
+            { uri: userRecordingUri },
+            { shouldPlay: true, progressUpdateIntervalMillis: 30 }
+          );
+          setUserSound(newSound);
+          newSound.setOnPlaybackStatusUpdate(onUserPlaybackStatusUpdate);
+        }
+      }
+    } catch (error) { console.error('Error playing user recording:', error); }
+  };
+
+  const handleOctaveUp = () => setOctaveShift(prev => prev + 1);
+  const handleOctaveDown = () => setOctaveShift(prev => prev - 1);
+
+  // Cleanup
   useEffect(() => {
     return () => {
-      if (pitchSubscriptionRef.current) {
-        pitchSubscriptionRef.current.remove();
-      }
-      if (animationFrameIdRef.current) {
-        cancelAnimationFrame(animationFrameIdRef.current);
-      }
+      pitchSubscriptionRef.current?.remove();
+      if (animationFrameIdRef.current) cancelAnimationFrame(animationFrameIdRef.current);
       Pitchy.stop();
-      if (sound) {
-        sound.unloadAsync();
-      }
+      sound?.unloadAsync();
+      userSound?.unloadAsync();
     };
-  }, [sound]); // Dependency on 'sound' ensures cleanup happens correctly when sound object changes/unmounts
+  }, [sound, userSound]);
 
-  // Permission check
-  if (!permissionGranted) {
-    return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.centerContainer}>
-          <Text style={styles.title}>Microphone Access Required</Text>
-          <Text style={styles.subtitle}>
-            Please grant microphone permission to use pitch tracking features.
-          </Text>
-        </View>
-      </SafeAreaView>
-    );
-  }
+  if (!permissionGranted) return <SafeAreaView style={styles.container}><View style={styles.centerContainer}><Text style={styles.title}>Microphone Access Required</Text></View></SafeAreaView>;
+  if (!selectedSong) return <SafeAreaView style={styles.container}><View style={styles.centerContainer}><Text style={styles.title}>Loading Song...</Text></View></SafeAreaView>;
 
-  // Loading check
-  if (!selectedSong) {
-    return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.centerContainer}>
-          <Text style={styles.title}>Loading Song...</Text>
-          <Text style={styles.subtitle}>
-            Please select a song from the Library tab.
-          </Text>
-          <TouchableOpacity style={styles.primaryButton} onPress={() => router.push('/library')}>
-            <Text style={styles.primaryButtonText}>Go to Library</Text>
-          </TouchableOpacity>
-        </View>
-      </SafeAreaView>
-    );
-  }
+  const isActionActive = isRecording || isPlayingAudio || isPlayingUserRecording;
 
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        {/* Header */}
         <View style={styles.header}>
           <Text style={styles.title}>Pitch Practice</Text>
-          <Text style={styles.subtitle}>
-            {selectedSong.title} by {selectedSong.artist}
-          </Text>
+          <Text style={styles.subtitle}>{selectedSong.title} by {selectedSong.artist}</Text>
         </View>
 
-        {/* Current Pitch Display */}
         <View style={styles.currentPitch}>
           <Text style={styles.noteText}>{note}</Text>
-          <Text style={styles.frequencyText}>
-            {frequency > 0 ? `${frequency.toFixed(1)} Hz` : 'No signal'}
-          </Text>
+          <Text style={styles.frequencyText}>{frequency > 0 ? `${frequency.toFixed(1)} Hz` : 'No signal'}</Text>
         </View>
 
-        {/* Timeline Selector */}
         <TimelineSelector
-          currentTime={currentDisplayTime} // This state drives the scrubber's position
+          currentTime={currentDisplayTime}
           totalDuration={totalDuration}
           onTimeChange={handleTimelineChange}
-          scrubberPosition={scrubberPosition} // Pass shared value for direct animation
+          scrubberPosition={scrubberPosition}
         />
 
-        {/* Pitch Visualizer */}
         <PitchVisualizer
           referencePitches={referencePitches}
           userPitches={userPitches}
-          currentPlaybackTime={currentDisplayTime} // Visualizer also uses currentDisplayTime
+          currentPlaybackTime={currentDisplayTime}
           totalDuration={totalDuration}
-          selectedStartTime={selectedSeekTime} // Visualizer needs to know the start point
+          selectedStartTime={selectedSeekTime}
+          isActionActive={isActionActive}
         />
 
-        {/* Control Buttons */}
         <View style={styles.controls}>
-          {/* Removed Reset Button and its related styles */}
-
           <TouchableOpacity
-            style={[styles.primaryButton, isPlayingAudio && styles.playingButton]}
+            style={[styles.primaryButton, (isRecording || isPlayingUserRecording) && styles.disabledButton]}
             onPress={handlePlayPauseAudio}
-            disabled={isRecording} // Cannot play audio while recording
+            disabled={isRecording || isPlayingUserRecording}
           >
-            {isPlayingAudio ? (
-              <Pause size={20} color="#fff" />
-            ) : (
-              <Play size={20} color="#fff" />
-            )}
-            <Text style={styles.primaryButtonText}>
-              {isPlayingAudio ? 'Pause' : 'Play Audio'}
-            </Text>
+            {isPlayingAudio ? <Pause size={20} color="#fff" /> : <Play size={20} color="#fff" />}
+            <Text style={styles.primaryButtonText}>{isPlayingAudio ? 'Pause' : 'Play Audio'}</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[styles.primaryButton, isRecording && styles.recordingButton]}
+            style={[styles.primaryButton, isRecording && styles.recordingButton, (isPlayingAudio || isPlayingUserRecording) && styles.disabledButton]}
             onPress={handleRecord}
-            disabled={isPlayingAudio} // Cannot record while playing audio
+            disabled={isPlayingAudio || isPlayingUserRecording}
           >
-            {isRecording ? (
-              <Square size={20} color="#fff" />
-            ) : (
-              <Play size={20} color="#fff" />
-            )}
-            <Text style={styles.primaryButtonText}>
-              {isRecording ? 'Stop' : 'Record'}
-            </Text>
+            {isRecording ? <Square size={20} color="#fff" /> : <Play size={20} color="#fff" />}
+            <Text style={styles.primaryButtonText}>{isRecording ? 'Stop' : 'Record'}</Text>
+          </TouchableOpacity>
+
+          {userRecordingUri && (
+            <TouchableOpacity
+              style={[styles.primaryButton, styles.playMineButton, (isRecording || isPlayingAudio) && styles.disabledButton]}
+              onPress={handlePlayUserRecording}
+              disabled={isRecording || isPlayingAudio}
+            >
+              {isPlayingUserRecording ? <Pause size={20} color="#fff" /> : <Play size={20} color="#fff" />}
+              <Text style={styles.primaryButtonText}>{isPlayingUserRecording ? 'Pause' : 'Play Mine'}</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+
+        <View style={styles.octaveControls}>
+          <TouchableOpacity onPress={handleOctaveDown} style={styles.octaveButton} disabled={isActionActive}>
+            <ChevronDown size={24} color={isActionActive ? '#ccc' : '#000'} />
+          </TouchableOpacity>
+          <Text style={styles.octaveText}>Octave: {octaveShift > 0 ? `+${octaveShift}` : octaveShift}</Text>
+          <TouchableOpacity onPress={handleOctaveUp} style={styles.octaveButton} disabled={isActionActive}>
+            <ChevronUp size={24} color={isActionActive ? '#ccc' : '#000'} />
           </TouchableOpacity>
         </View>
       </ScrollView>
@@ -429,77 +408,22 @@ export default function PitchTrackerScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#fff',
-  },
-  content: {
-    flex: 1,
-    paddingHorizontal: 24,
-  },
-  centerContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 24,
-  },
-  header: {
-    paddingTop: 32,
-    marginBottom: 24,
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: '700',
-    color: '#000',
-    marginBottom: 4,
-  },
-  subtitle: {
-    fontSize: 14,
-    color: '#666',
-    lineHeight: 20,
-  },
-  currentPitch: {
-    alignItems: 'center',
-    marginBottom: 24,
-    paddingVertical: 20,
-    backgroundColor: '#f9f9f9',
-    borderRadius: 12,
-  },
-  noteText: {
-    fontSize: 40,
-    fontWeight: '700',
-    color: '#000',
-    marginBottom: 4,
-  },
-  frequencyText: {
-    fontSize: 14,
-    color: '#666',
-  },
-  controls: {
-    flexDirection: 'row',
-    gap: 12,
-    justifyContent: 'center',
-    marginBottom: 32,
-    flexWrap: 'wrap',
-  },
-  primaryButton: {
-    backgroundColor: '#000',
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderRadius: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  recordingButton: {
-    backgroundColor: '#FF3B30',
-  },
-  playingButton: {
-    backgroundColor: '#007AFF',
-  },
-  primaryButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
+  container: { flex: 1, backgroundColor: '#fff' },
+  content: { flex: 1, paddingHorizontal: 24 },
+  centerContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 24 },
+  header: { paddingTop: 32, marginBottom: 24 },
+  title: { fontSize: 28, fontWeight: '700', color: '#000', marginBottom: 4 },
+  subtitle: { fontSize: 14, color: '#666', lineHeight: 20 },
+  currentPitch: { alignItems: 'center', marginBottom: 24, paddingVertical: 20, backgroundColor: '#f9f9f9', borderRadius: 12 },
+  noteText: { fontSize: 40, fontWeight: '700', color: '#000', marginBottom: 4 },
+  frequencyText: { fontSize: 14, color: '#666' },
+  controls: { flexDirection: 'row', gap: 12, justifyContent: 'center', flexWrap: 'wrap' },
+  primaryButton: { backgroundColor: '#000', paddingVertical: 12, paddingHorizontal: 20, borderRadius: 8, flexDirection: 'row', alignItems: 'center', gap: 8 },
+  recordingButton: { backgroundColor: '#FF3B30' },
+  playMineButton: { backgroundColor: '#5856D6' },
+  disabledButton: { opacity: 0.5 },
+  primaryButtonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+  octaveControls: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 20, marginTop: 16, marginBottom: 32 },
+  octaveButton: { padding: 10, backgroundColor: '#f0f0f0', borderRadius: 50 },
+  octaveText: { fontSize: 16, fontWeight: '600', color: '#333', minWidth: 90, textAlign: 'center' },
 });

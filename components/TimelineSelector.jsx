@@ -1,11 +1,11 @@
-// components/TimelineSelector.js
+// components/TimelineSelector.jsx
 import React from 'react';
 import { View, Text, StyleSheet, PanResponder, Dimensions } from 'react-native';
 import Animated, { useAnimatedStyle } from 'react-native-reanimated';
 
 const { width: screenWidth } = Dimensions.get('window');
 const TIMELINE_PADDING = 24;
-const TIMELINE_WIDTH = screenWidth - (TIMELINE_PADDING * 4); // Account for container padding
+export const TIMELINE_WIDTH = screenWidth - (TIMELINE_PADDING * 4); // Account for container padding
 
 export default function TimelineSelector({
   currentTime,

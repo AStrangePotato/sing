@@ -1,12 +1,13 @@
-// components/PitchVisualizer.js
+// components/PitchVisualizer.jsx
 import React, { useRef, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, Dimensions } from 'react-native';
 import { Svg, Circle, Line } from 'react-native-svg';
 
 const { width: screenWidth } = Dimensions.get('window');
-const GRAPH_WIDTH = screenWidth - 88; // Account for y-axis labels
+const GRAPH_WIDTH = screenWidth - 48; // Adjusted for padding
 const GRAPH_HEIGHT = 250;
 const PIXELS_PER_SECOND = 60;
+const SCROLL_OFFSET = GRAPH_WIDTH / 3; // Keep playback head 1/3 from left
 
 // Frequency to Y position converter
 const freqToY = (freq) => {
@@ -26,17 +27,18 @@ export default function PitchVisualizer({
   userPitches,
   currentPlaybackTime,
   totalDuration,
-  selectedStartTime
+  selectedStartTime,
+  isActionActive, // To control auto-scrolling
 }) {
   const scrollViewRef = useRef(null);
 
-  // Auto-scroll to follow playback
+  // Auto-scroll to follow playback/recording
   useEffect(() => {
-    if (scrollViewRef.current && currentPlaybackTime > 0) {
-      const scrollX = Math.max(0, currentPlaybackTime * PIXELS_PER_SECOND - GRAPH_WIDTH / 2);
-      scrollViewRef.current.scrollTo({ x: scrollX, animated: true });
+    if (scrollViewRef.current && isActionActive) {
+      const scrollX = Math.max(0, currentPlaybackTime * PIXELS_PER_SECOND - SCROLL_OFFSET);
+      scrollViewRef.current.scrollTo({ x: scrollX, animated: false });
     }
-  }, [currentPlaybackTime]);
+  }, [currentPlaybackTime, isActionActive]);
 
   const graphWidth = Math.max(GRAPH_WIDTH, totalDuration * PIXELS_PER_SECOND + 100);
 
@@ -45,14 +47,9 @@ export default function PitchVisualizer({
   
   // Y-axis labels
   const yAxisLabels = [
-    { note: 'E4', freq: 329.63 },
-    { note: 'D4', freq: 293.66 },
-    { note: 'C4', freq: 261.63 },
-    { note: 'A3', freq: 220.00 },
-    { note: 'G3', freq: 196.00 },
-    { note: 'F3', freq: 174.61 },
-    { note: 'D3', freq: 146.83 },
-    { note: 'C3', freq: 130.81 },
+    { note: 'E4', freq: 329.63 }, { note: 'C4', freq: 261.63 },
+    { note: 'A3', freq: 220.00 }, { note: 'G3', freq: 196.00 },
+    { note: 'D3', freq: 146.83 }, { note: 'C3', freq: 130.81 },
   ];
 
   return (
@@ -63,13 +60,7 @@ export default function PitchVisualizer({
         {/* Y-axis labels */}
         <View style={styles.yAxisLabels}>
           {yAxisLabels.map((item, index) => (
-            <Text
-              key={index}
-              style={[
-                styles.yAxisLabel,
-                { top: freqToY(item.freq) - 8 }
-              ]}
-            >
+            <Text key={index} style={[styles.yAxisLabel, { top: freqToY(item.freq) - 8 }]}>
               {item.note}
             </Text>
           ))}
@@ -82,19 +73,12 @@ export default function PitchVisualizer({
           showsHorizontalScrollIndicator={false}
           style={styles.graphScrollView}
           contentContainerStyle={{ width: graphWidth }}
+          scrollEnabled={!isActionActive} // Disable manual scroll during action
         >
           <Svg width={graphWidth} height={GRAPH_HEIGHT}>
             {/* Grid lines */}
             {gridFrequencies.map((freq, index) => (
-              <Line
-                key={`grid-${index}`}
-                x1={0}
-                y1={freqToY(freq)}
-                x2={graphWidth}
-                y2={freqToY(freq)}
-                stroke="#f0f0f0"
-                strokeWidth="1"
-              />
+              <Line key={`grid-${index}`} x1={0} y1={freqToY(freq)} x2={graphWidth} y2={freqToY(freq)} stroke="#f0f0f0" strokeWidth="1" />
             ))}
 
             {/* Start position indicator */}
@@ -108,40 +92,26 @@ export default function PitchVisualizer({
               opacity="0.8"
             />
 
-            {/* Current playback position */}
-            {currentPlaybackTime > 0 && (
+            {/* Current playback position (real-time bar) */}
+            {isActionActive && (
               <Line
                 x1={currentPlaybackTime * PIXELS_PER_SECOND}
                 y1={0}
                 x2={currentPlaybackTime * PIXELS_PER_SECOND}
                 y2={GRAPH_HEIGHT}
-                stroke="#666"
+                stroke="#FF3B30"
                 strokeWidth="2"
-                opacity="0.6"
               />
             )}
 
             {/* Reference pitches */}
             {referencePitches.map((point, index) => (
-              <Circle
-                key={`ref-${index}`}
-                cx={point.time * PIXELS_PER_SECOND}
-                cy={freqToY(point.freq)}
-                r="4"
-                fill="#34C759"
-                opacity="0.8"
-              />
+              <Circle key={`ref-${index}`} cx={point.time * PIXELS_PER_SECOND} cy={freqToY(point.freq)} r="4" fill="#34C759" opacity="0.8" />
             ))}
 
             {/* User pitches */}
             {userPitches.map((pitch, index) => (
-              <Circle
-                key={`user-${index}`}
-                cx={pitch.time * PIXELS_PER_SECOND}
-                cy={freqToY(pitch.freq)}
-                r="3"
-                fill="#FF9500"
-              />
+              <Circle key={`user-${index}`} cx={pitch.time * PIXELS_PER_SECOND} cy={freqToY(pitch.freq)} r="3" fill="#FF9500" />
             ))}
           </Svg>
         </ScrollView>
@@ -163,57 +133,14 @@ export default function PitchVisualizer({
 }
 
 const styles = StyleSheet.create({
-  container: {
-    marginBottom: 24,
-  },
-  title: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#000',
-    marginBottom: 12,
-  },
-  graphContainer: {
-    flexDirection: 'row',
-    backgroundColor: '#f9f9f9',
-    borderRadius: 12,
-    overflow: 'hidden',
-  },
-  yAxisLabels: {
-    width: 40,
-    height: GRAPH_HEIGHT,
-    backgroundColor: '#f9f9f9',
-    justifyContent: 'center',
-    paddingLeft: 8,
-  },
-  yAxisLabel: {
-    position: 'absolute',
-    fontSize: 11,
-    color: '#666',
-    fontWeight: '500',
-  },
-  graphScrollView: {
-    flex: 1,
-    height: GRAPH_HEIGHT,
-  },
-  legend: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    marginTop: 12,
-    gap: 16,
-    flexWrap: 'wrap',
-  },
-  legendItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  legendDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
-  legendText: {
-    fontSize: 12,
-    color: '#666',
-  },
+  container: { marginBottom: 24 },
+  title: { fontSize: 16, fontWeight: '600', color: '#000', marginBottom: 12 },
+  graphContainer: { flexDirection: 'row', backgroundColor: '#f9f9f9', borderRadius: 12, overflow: 'hidden' },
+  yAxisLabels: { width: 40, height: GRAPH_HEIGHT, backgroundColor: '#f9f9f9', justifyContent: 'center', paddingLeft: 8 },
+  yAxisLabel: { position: 'absolute', fontSize: 11, color: '#666', fontWeight: '500' },
+  graphScrollView: { flex: 1, height: GRAPH_HEIGHT },
+  legend: { flexDirection: 'row', justifyContent: 'center', marginTop: 12, gap: 16, flexWrap: 'wrap' },
+  legendItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  legendDot: { width: 8, height: 8, borderRadius: 4 },
+  legendText: { fontSize: 12, color: '#666' },
 });
