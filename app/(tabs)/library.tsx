@@ -2,17 +2,25 @@ import { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, TextInput, FlatList } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Plus, Music, Search } from 'lucide-react-native';
+import { useRouter } from 'expo-router';
+import { initialSongs as predefinedSongs } from '../../data/songdata';
 
 export default function LibraryScreen() {
-  const [songs, setSongs] = useState([
-    {
-      id: '1',
-      title: 'Example Song',
-      artist: 'Demo Artist',
-      duration: '3:45',
-      addedDate: '2024-01-15',
-    },
-  ]);
+  const router = useRouter();
+
+  // Initialize songs state with predefinedSongs, only including relevant properties
+  const [songs, setSongs] = useState(() => {
+    // Filter predefinedSongs to only include properties relevant for display in the library.
+    // 'filename' and 'pitches' are not needed here.
+    const formattedPredefinedSongs = predefinedSongs.map(song => ({
+      id: song.id,
+      title: song.title,
+      artist: song.artist,
+      duration: song.duration,
+    }));
+    return formattedPredefinedSongs;
+  });
+
   const [searchQuery, setSearchQuery] = useState('');
   const [showAddForm, setShowAddForm] = useState(false);
   const [newSong, setNewSong] = useState({ title: '', artist: '', duration: '' });
@@ -25,9 +33,8 @@ export default function LibraryScreen() {
   const handleAddSong = () => {
     if (newSong.title.trim() && newSong.artist.trim()) {
       const song = {
-        id: Date.now().toString(),
+        id: Date.now().toString(), // Use Date.now() for unique ID for newly added songs
         ...newSong,
-        addedDate: new Date().toISOString().split('T')[0],
       };
       setSongs([...songs, song]);
       setNewSong({ title: '', artist: '', duration: '' });
@@ -35,8 +42,15 @@ export default function LibraryScreen() {
     }
   };
 
+  const handleSongPress = (songId) => {
+    router.push({
+      pathname: '/pitch-tracker',
+      params: { songId: songId }
+    });
+  };
+
   const renderSongItem = ({ item }) => (
-    <TouchableOpacity style={styles.songItem}>
+    <TouchableOpacity style={styles.songItem} onPress={() => handleSongPress(item.id)}>
       <View style={styles.songIcon}>
         <Music size={20} color="#666" />
       </View>
