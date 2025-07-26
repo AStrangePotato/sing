@@ -29,20 +29,6 @@ const parseDuration = (durationString) => {
   return 0;
 };
 
-const getNote = (freq) => {
-  if (!freq || isNaN(freq) || freq <= 0) return '--';
-  const noteStrings = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
-  const A4 = 440;
-  const semitonesFromA4 = 12 * Math.log2(freq / A4);
-  if (isNaN(semitonesFromA4)) return '--';
-  const noteIndex = Math.round(semitonesFromA4) + 9;
-  const normalizedIndex = ((noteIndex % 12) + 12) % 12;
-  const octave = 4 + Math.floor(noteIndex / 12);
-  const note = noteStrings[normalizedIndex];
-  if (!note) return '--';
-  return `${note}${octave}`;
-};
-
 const isValidFrequency = (freq) => freq >= 100 && freq <= 800;
 
 export default function PitchTrackerScreen() {
@@ -68,8 +54,6 @@ export default function PitchTrackerScreen() {
   const [currentDisplayTime, setCurrentDisplayTime] = useState(0);
 
   // Recording state
-  const [frequency, setFrequency] = useState(0);
-  const [note, setNote] = useState('--');
   const [userPitches, setUserPitches] = useState([]);
   const [isRecording, setIsRecording] = useState(false);
   const [recording, setRecording] = useState(null);
@@ -204,8 +188,6 @@ export default function PitchTrackerScreen() {
         cancelAnimationFrame(animationFrameIdRef.current);
         animationFrameIdRef.current = null;
       }
-      setFrequency(0);
-      setNote('--');
     } catch (error) { console.error('Error stopping pitch detection:', error); }
   }, []);
 
@@ -231,16 +213,11 @@ export default function PitchTrackerScreen() {
       animationFrameIdRef.current = requestAnimationFrame(animateScrubberDuringRecording);
       pitchSubscriptionRef.current = Pitchy.addListener((data) => {
         if (isValidFrequency(data.pitch)) {
-          setFrequency(data.pitch);
-          setNote(getNote(data.pitch));
           const elapsed = (Date.now() - recordingActualStartTimeRef.current) / 1000;
           const pitchTime = selectedSeekTimeRef.current + elapsed;
           if (pitchTime <= totalDuration) {
             setUserPitches(prev => [...prev, { time: pitchTime, freq: data.pitch }]);
           }
-        } else {
-          setFrequency(0);
-          setNote('--');
         }
       });
       await Pitchy.start();
@@ -328,7 +305,17 @@ export default function PitchTrackerScreen() {
     };
   }, [sound, userSound]);
 
-  if (!permissionGranted) return <SafeAreaView style={styles.container}><View style={styles.centerContainer}><Text style={styles.title}>Microphone Access Required</Text></View></SafeAreaView>;
+  if (permissionGranted === false) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.centerContainer}>
+          <Text style={styles.title}>Microphone Access Required</Text>
+          <Text style={styles.subtitle}>Please grant permission in your device settings.</Text>
+        </View>
+      </SafeAreaView>
+    ); 
+  }
+
   if (!selectedSong) return <SafeAreaView style={styles.container}><View style={styles.centerContainer}><Text style={styles.title}>Loading Song...</Text></View></SafeAreaView>;
 
   const isActionActive = isRecording || isPlayingAudio || isPlayingUserRecording;
@@ -337,13 +324,8 @@ export default function PitchTrackerScreen() {
     <SafeAreaView style={styles.container}>
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.header}>
-          <Text style={styles.title}>Pitch Practice</Text>
-          <Text style={styles.subtitle}>{selectedSong.title} by {selectedSong.artist}</Text>
-        </View>
-
-        <View style={styles.currentPitch}>
-          <Text style={styles.noteText}>{note}</Text>
-          <Text style={styles.frequencyText}>{frequency > 0 ? `${frequency.toFixed(1)} Hz` : 'No signal'}</Text>
+          <Text style={styles.title}>{selectedSong.title}</Text>
+          <Text style={styles.subtitle}>by {selectedSong.artist}</Text>
         </View>
 
         <TimelineSelector
@@ -412,12 +394,9 @@ const styles = StyleSheet.create({
   content: { flex: 1, paddingHorizontal: 24 },
   centerContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 24 },
   header: { paddingTop: 32, marginBottom: 24 },
-  title: { fontSize: 28, fontWeight: '700', color: '#000', marginBottom: 4 },
-  subtitle: { fontSize: 14, color: '#666', lineHeight: 20 },
-  currentPitch: { alignItems: 'center', marginBottom: 24, paddingVertical: 20, backgroundColor: '#f9f9f9', borderRadius: 12 },
-  noteText: { fontSize: 40, fontWeight: '700', color: '#000', marginBottom: 4 },
-  frequencyText: { fontSize: 14, color: '#666' },
-  controls: { flexDirection: 'row', gap: 12, justifyContent: 'center', flexWrap: 'wrap' },
+  title: { fontSize: 28, fontWeight: '700', color: '#000', marginBottom: 4, textAlign: 'center' },
+  subtitle: { fontSize: 14, color: '#666', lineHeight: 20, textAlign: 'center' },
+  controls: { flexDirection: 'row', gap: 12, justifyContent: 'center', flexWrap: 'wrap', marginTop: 24 },
   primaryButton: { backgroundColor: '#000', paddingVertical: 12, paddingHorizontal: 20, borderRadius: 8, flexDirection: 'row', alignItems: 'center', gap: 8 },
   recordingButton: { backgroundColor: '#FF3B30' },
   playMineButton: { backgroundColor: '#5856D6' },

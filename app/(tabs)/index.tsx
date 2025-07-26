@@ -8,7 +8,7 @@ export default function HomeScreen() {
     <SafeAreaView style={styles.container}>
       <View style={styles.content}>
         <View style={styles.header}>
-          <Text style={styles.title}>SingBetter</Text>
+          <Text style={styles.title}>Vocalign</Text>
           <Text style={styles.subtitle}>Practice singing with real-time pitch tracking</Text>
         </View>
 
