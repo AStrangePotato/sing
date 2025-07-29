@@ -9,7 +9,7 @@ import librosa
 app = Flask(__name__)
 
 UPLOAD_FOLDER = "uploads"
-VOCALS_FOLDER = "vocals"
+VOCALS_FOLDER = "vocals" 
 ALLOWED_EXTENSIONS = {'mp3'}
 
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)

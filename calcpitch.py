@@ -93,7 +93,7 @@ def build_song_data(mp3_path, title="My Song", artist="Singer"):
     }
 
 if __name__ == "__main__":
-    input_mp3 = "./assets/audio/fallingbehind.mp3"
+    input_mp3 = "./assets/audio/loveyou3000.mp3"
     song_data = build_song_data(input_mp3)
     with open("song_data.json", "w") as f:
         json.dump([song_data], f, indent=2)
