@@ -52,6 +52,7 @@ def auto_correlate(buf, sample_rate, min_volume_db=-55.0):
     d = 0
     while d + 1 < SIZE and c[d] > c[d + 1]:
         d += 1
+        
 
     maxval = -np.inf
     maxpos = -1

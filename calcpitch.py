@@ -4,12 +4,13 @@ import json
 import os
 
 def get_volume_decibel(rms):
-    return 20 * np.log10(rms + 1e-10)  # safe log
+    return 20 * np.log10(rms + 1e-10)
 
 def auto_correlate(buf, sample_rate, min_volume_db=-55.0):
     SIZE = len(buf)
     rms = np.sqrt(np.mean(buf**2))
     decibel = get_volume_decibel(rms)
+
     if decibel < min_volume_db:
         return -1
 
@@ -29,9 +30,10 @@ def auto_correlate(buf, sample_rate, min_volume_db=-55.0):
     if SIZE < 2:
         return -1
 
-    c = np.zeros(SIZE)
-    for i in range(SIZE):
-        c[i] = np.sum(sliced[:SIZE - i] * sliced[i:])
+    # Optimized autocorrelation using numpy.correlate
+    # 'full' mode returns the convolution at each point of overlap
+    # The second half of the result corresponds to positive lags (tau >= 0)
+    c = np.correlate(sliced, sliced, mode='full')[SIZE-1:]
 
     d = 0
     while d + 1 < SIZE and c[d] > c[d + 1]:
@@ -60,12 +62,10 @@ def extract_pitch_frames(mp3_path, buffer_size=4096, sample_rate=44100):
     y, sr = librosa.load(mp3_path, sr=sample_rate, mono=True)
     pitches = []
 
-    hop_size = buffer_size  # non-overlapping frames
+    hop_size = buffer_size
     num_frames = (len(y) - buffer_size) // hop_size
 
-    print(num_frames)
     for i in range(num_frames):
-        print(i)
         start = i * hop_size
         frame = y[start:start + buffer_size]
         pitch = auto_correlate(frame, sample_rate)
@@ -83,13 +83,16 @@ def extract_pitch_frames(mp3_path, buffer_size=4096, sample_rate=44100):
 
 def build_song_data(mp3_path, title="My Song", artist="Singer"):
     pitches, duration_sec = extract_pitch_frames(mp3_path)
+
+    compact_pitches_json_string = json.dumps(pitches, separators=(',', ':'))
+
     return {
         "id": os.path.splitext(os.path.basename(mp3_path))[0],
         "title": title,
         "artist": artist,
         "duration": "{:02d}:{:02d}".format(int(duration_sec) // 60, int(duration_sec) % 60),
         "filename": mp3_path,
-        "pitches": pitches
+        "pitches": compact_pitches_json_string
     }
 
 if __name__ == "__main__":
@@ -97,4 +100,4 @@ if __name__ == "__main__":
     song_data = build_song_data(input_mp3)
     with open("song_data.json", "w") as f:
         json.dump([song_data], f, indent=2)
-    print("✅ Frame-based pitch data using 4096 buffer saved to song_data.json")
+    print("✅ Frame-based pitch data using 4096 buffer saved to song_data.json with pitches on one line.")
