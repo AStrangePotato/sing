@@ -3,7 +3,7 @@ export const initialSongs = [
         id: "fromthestart",
         title: "From The Start",
         artist: "Laufey",
-        duration: "02:49",
+        duration: "02:49", 
         filename: require('../assets/audio/fromthestart.mp3'),
         pitches: [
             {

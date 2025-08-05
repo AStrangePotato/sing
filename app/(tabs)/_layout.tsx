@@ -1,5 +1,5 @@
 import { Tabs } from 'expo-router';
-import { Chrome as Home, Mic, Music, Gamepad2 } from 'lucide-react-native';
+import { Chrome as Home, Mic, Music, Gamepad2, Plus } from 'lucide-react-native';
 
 export default function TabLayout() {
   return (

@@ -1,45 +1,100 @@
-import { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, TextInput, FlatList } from 'react-native';
+import { useState, useEffect, useCallback } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, TextInput, FlatList, Alert, RefreshControl } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Plus, Music, Search } from 'lucide-react-native';
-import { useRouter } from 'expo-router';
+import { Plus, Music, Search, Trash2 } from 'lucide-react-native';
+import { useRouter, useFocusEffect } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { initialSongs as predefinedSongs } from '../../data/songdata';
 
 export default function LibraryScreen() {
   const router = useRouter();
 
-  // Initialize songs state with predefinedSongs, only including relevant properties
-  const [songs, setSongs] = useState(() => {
-    // Filter predefinedSongs to only include properties relevant for display in the library.
-    // 'filename' and 'pitches' are not needed here.
-    const formattedPredefinedSongs = predefinedSongs.map(song => ({
-      id: song.id,
-      title: song.title,
-      artist: song.artist,
-      duration: song.duration,
-    }));
-    return formattedPredefinedSongs;
-  });
-
+  const [songs, setSongs] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [showAddForm, setShowAddForm] = useState(false);
-  const [newSong, setNewSong] = useState({ title: '', artist: '', duration: '' });
 
-  const filteredSongs = songs.filter(song =>
-    song.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    song.artist.toLowerCase().includes(searchQuery.toLowerCase())
+  // Load songs from AsyncStorage and merge with predefined songs
+  const loadSongs = async () => {
+    try {
+      const storedSongs = await AsyncStorage.getItem('songs');
+      const userSongs = storedSongs ? JSON.parse(storedSongs) : [];
+      
+      // Format predefined songs for display (without filename and pitches)
+      const formattedPredefinedSongs = predefinedSongs.map(song => ({
+        id: song.id,
+        title: song.title,
+        artist: song.artist,
+        duration: song.duration,
+        isPredefined: true,
+      }));
+
+      // Format user songs
+      const formattedUserSongs = userSongs.map(song => ({
+        id: song.id,
+        title: song.title,
+        artist: song.artist,
+        duration: song.duration,
+        isPredefined: false,
+        dateAdded: song.dateAdded,
+        hasAudioFile: !!song.filename,
+      }));
+
+      // Combine and sort (user songs first, then predefined)
+      const allSongs = [...formattedUserSongs, ...formattedPredefinedSongs];
+      setSongs(allSongs);
+    } catch (error) {
+      console.error('Error loading songs:', error);
+      Alert.alert('Error', 'Failed to load songs from storage');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Load songs when screen is focused
+  useFocusEffect(
+    useCallback(() => {
+      loadSongs();
+    }, [])
   );
 
-  const handleAddSong = () => {
-    if (newSong.title.trim() && newSong.artist.trim()) {
-      const song = {
-        id: Date.now().toString(), // Use Date.now() for unique ID for newly added songs
-        ...newSong,
-      };
-      setSongs([...songs, song]);
-      setNewSong({ title: '', artist: '', duration: '' });
-      setShowAddForm(false);
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await loadSongs();
+    setRefreshing(false);
+  };
+
+  const handleDeleteSong = async (songId) => {
+    try {
+      const storedSongs = await AsyncStorage.getItem('songs');
+      const userSongs = storedSongs ? JSON.parse(storedSongs) : [];
+      
+      const updatedSongs = userSongs.filter(song => song.id !== songId);
+      await AsyncStorage.setItem('songs', JSON.stringify(updatedSongs));
+      
+      // Reload the songs list
+      await loadSongs();
+      
+      Alert.alert('Success', 'Song deleted from library');
+    } catch (error) {
+      console.error('Error deleting song:', error);
+      Alert.alert('Error', 'Failed to delete song');
     }
+  };
+
+  const confirmDeleteSong = (song) => {
+    Alert.alert(
+      'Delete Song',
+      `Are you sure you want to delete "${song.title}" by ${song.artist}?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { 
+          text: 'Delete', 
+          style: 'destructive',
+          onPress: () => handleDeleteSong(song.id)
+        }
+      ]
+    );
   };
 
   const handleSongPress = (songId) => {
@@ -49,70 +104,50 @@ export default function LibraryScreen() {
     });
   };
 
-  const renderSongItem = ({ item }) => (
-    <TouchableOpacity style={styles.songItem} onPress={() => handleSongPress(item.id)}>
-      <View style={styles.songIcon}>
-        <Music size={20} color="#666" />
-      </View>
-      <View style={styles.songInfo}>
-        <Text style={styles.songTitle}>{item.title}</Text>
-        <Text style={styles.songArtist}>{item.artist}</Text>
-      </View>
-      <View style={styles.songMeta}>
-        <Text style={styles.songDuration}>{item.duration}</Text>
-      </View>
-    </TouchableOpacity>
+  const handleAddSong = () => {
+    router.push('/addsong');
+  };
+
+  const filteredSongs = songs.filter(song =>
+    song.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    song.artist.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  if (showAddForm) {
+  const renderSongItem = ({ item }) => (
+    <View style={styles.songItemContainer}>
+      <TouchableOpacity 
+        style={styles.songItem} 
+        onPress={() => handleSongPress(item.id)}
+      >
+        <View style={styles.songIcon}>
+          <Music size={20} color="#666" />
+        </View>
+        <View style={styles.songInfo}>
+          <Text style={styles.songTitle}>{item.title}</Text>
+          <Text style={styles.songArtist}>{item.artist}</Text>
+        </View>
+        <View style={styles.songMeta}>
+          <Text style={styles.songDuration}>{item.duration}</Text>
+          {!item.isPredefined && (
+            <TouchableOpacity
+              style={styles.deleteButton}
+              onPress={() => confirmDeleteSong(item)}
+            >
+              <Trash2 size={16} color="#FF3B30" />
+            </TouchableOpacity>
+          )}
+        </View>
+      </TouchableOpacity>
+    </View>
+  );
+
+  const userSongsCount = songs.filter(song => !song.isPredefined).length;
+
+  if (loading) {
     return (
       <SafeAreaView style={styles.container}>
-        <View style={styles.content}>
-          <View style={styles.header}>
-            <Text style={styles.title}>Add New Song</Text>
-            <TouchableOpacity onPress={() => setShowAddForm(false)}>
-              <Text style={styles.cancelText}>Cancel</Text>
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.form}>
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Song Title</Text>
-              <TextInput
-                style={styles.input}
-                value={newSong.title}
-                onChangeText={(text) => setNewSong({ ...newSong, title: text })}
-                placeholder="Enter song title"
-                placeholderTextColor="#999"
-              />
-            </View>
-
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Artist</Text>
-              <TextInput
-                style={styles.input}
-                value={newSong.artist}
-                onChangeText={(text) => setNewSong({ ...newSong, artist: text })}
-                placeholder="Enter artist name"
-                placeholderTextColor="#999"
-              />
-            </View>
-
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Duration (Optional)</Text>
-              <TextInput
-                style={styles.input}
-                value={newSong.duration}
-                onChangeText={(text) => setNewSong({ ...newSong, duration: text })}
-                placeholder="e.g., 3:45"
-                placeholderTextColor="#999"
-              />
-            </View>
-
-            <TouchableOpacity style={styles.primaryButton} onPress={handleAddSong}>
-              <Text style={styles.primaryButtonText}>Add Song</Text>
-            </TouchableOpacity>
-          </View>
+        <View style={styles.centerContainer}>
+          <Text style={styles.loadingText}>Loading your library...</Text>
         </View>
       </SafeAreaView>
     );
@@ -122,9 +157,14 @@ export default function LibraryScreen() {
     <SafeAreaView style={styles.container}>
       <View style={styles.content}>
         <View style={styles.header}>
-          <Text style={styles.title}>Song Library</Text>
-          <TouchableOpacity onPress={() => setShowAddForm(true)}>
-            <Plus size={24} color="#000" />
+          <View>
+            <Text style={styles.title}>Song Library</Text>
+            <Text style={styles.headerSubtitle}>
+              {userSongsCount} your songs • {songs.length} total
+            </Text>
+          </View>
+          <TouchableOpacity onPress={handleAddSong} style={styles.addButton}>
+            <Plus size={24} color="#007AFF" />
           </TouchableOpacity>
         </View>
 
@@ -142,12 +182,14 @@ export default function LibraryScreen() {
         {filteredSongs.length === 0 ? (
           <View style={styles.emptyState}>
             <Music size={48} color="#ccc" />
-            <Text style={styles.emptyTitle}>No songs found</Text>
+            <Text style={styles.emptyTitle}>
+              {searchQuery ? 'No songs found' : 'No songs in library'}
+            </Text>
             <Text style={styles.emptyText}>
-              {searchQuery ? 'Try adjusting your search' : 'Add your first song to get started'}
+              {searchQuery ? 'Try adjusting your search terms' : 'Add your first song to get started with pitch tracking'}
             </Text>
             {!searchQuery && (
-              <TouchableOpacity style={styles.primaryButton} onPress={() => setShowAddForm(true)}>
+              <TouchableOpacity style={styles.primaryButton} onPress={handleAddSong}>
                 <Plus size={20} color="#fff" />
                 <Text style={styles.primaryButtonText}>Add Song</Text>
               </TouchableOpacity>
@@ -160,6 +202,9 @@ export default function LibraryScreen() {
             keyExtractor={(item) => item.id}
             showsVerticalScrollIndicator={false}
             contentContainerStyle={styles.listContainer}
+            refreshControl={
+              <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+            }
           />
         )}
       </View>
@@ -170,27 +215,42 @@ export default function LibraryScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: '#f8f9fa',
   },
   content: {
     flex: 1,
-    paddingHorizontal: 24,
-    paddingTop: 32,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+  },
+  centerContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    fontSize: 16,
+    color: '#666',
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     marginBottom: 24,
   },
   title: {
     fontSize: 28,
     fontWeight: '700',
-    color: '#000',
+    color: '#1a1a1a',
+    marginBottom: 4,
   },
-  cancelText: {
-    fontSize: 16,
+  headerSubtitle: {
+    fontSize: 14,
     color: '#666',
+  },
+  addButton: {
+    padding: 8,
+    backgroundColor: '#f0f8ff',
+    borderRadius: 12,
   },
   searchContainer: {
     flexDirection: 'row',
@@ -210,18 +270,27 @@ const styles = StyleSheet.create({
   listContainer: {
     paddingBottom: 100,
   },
+  songItemContainer: {
+    marginBottom: 2,
+  },
   songItem: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
+    paddingHorizontal: 16,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 2,
   },
   songIcon: {
-    width: 40,
-    height: 40,
+    width: 44,
+    height: 44,
     backgroundColor: '#f5f5f5',
-    borderRadius: 8,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 16,
@@ -232,7 +301,7 @@ const styles = StyleSheet.create({
   songTitle: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#000',
+    color: '#1a1a1a',
     marginBottom: 4,
   },
   songArtist: {
@@ -241,10 +310,15 @@ const styles = StyleSheet.create({
   },
   songMeta: {
     alignItems: 'flex-end',
+    gap: 8,
   },
   songDuration: {
     fontSize: 14,
     color: '#666',
+    fontWeight: '500',
+  },
+  deleteButton: {
+    padding: 4,
   },
   emptyState: {
     flex: 1,
@@ -255,7 +329,7 @@ const styles = StyleSheet.create({
   emptyTitle: {
     fontSize: 20,
     fontWeight: '600',
-    color: '#000',
+    color: '#1a1a1a',
     marginTop: 16,
     marginBottom: 8,
   },
@@ -266,27 +340,8 @@ const styles = StyleSheet.create({
     lineHeight: 24,
     marginBottom: 32,
   },
-  form: {
-    gap: 24,
-  },
-  inputGroup: {
-    gap: 8,
-  },
-  inputLabel: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#000',
-  },
-  input: {
-    backgroundColor: '#f5f5f5',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    fontSize: 16,
-    color: '#000',
-  },
   primaryButton: {
-    backgroundColor: '#000',
+    backgroundColor: '#007AFF',
     paddingVertical: 16,
     paddingHorizontal: 24,
     borderRadius: 12,
@@ -294,6 +349,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'center',
     gap: 8,
+    shadowColor: '#007AFF',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
   },
   primaryButtonText: {
     color: '#fff',

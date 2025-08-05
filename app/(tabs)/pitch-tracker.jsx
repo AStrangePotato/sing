@@ -14,6 +14,7 @@ import Pitchy from 'react-native-pitchy';
 import { Audio } from 'expo-av';
 import { useLocalSearchParams } from 'expo-router';
 import { initialSongs } from '../../data/songdata';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSharedValue, withTiming } from 'react-native-reanimated';
 import TimelineSelector, { TIMELINE_WIDTH } from '../../components/TimelineSelector';
 import PitchVisualizer from '../../components/PitchVisualizer';
@@ -48,6 +49,7 @@ export default function PitchTrackerScreen() {
   const [originalReferencePitches, setOriginalReferencePitches] = useState([]);
   const [referencePitches, setReferencePitches] = useState([]);
   const [octaveShift, setOctaveShift] = useState(0);
+  const [songSource, setSongSource] = useState('predefined'); // 'predefined' or 'user'
 
   // User interaction state
   const [selectedSeekTime, setSelectedSeekTime] = useState(0);
@@ -74,27 +76,81 @@ export default function PitchTrackerScreen() {
   const selectedSeekTimeRef = useRef(selectedSeekTime);
   useEffect(() => { selectedSeekTimeRef.current = selectedSeekTime; }, [selectedSeekTime]);
 
-  // Load song data
-  useEffect(() => {
-    const song = songId ? initialSongs.find(s => s.id === songId) : initialSongs[0];
-    if (song) {
-      setSelectedSong(song);
-      const duration = parseDuration(song.duration);
-      setTotalDuration(duration);
-      const originalPitches = song.pitches.map(p => ({ time: p.time, freq: midiToFreq(p.pitch) }));
-      setOriginalReferencePitches(originalPitches);
-      setReferencePitches(originalPitches);
-      setOctaveShift(0);
-      setCurrentDisplayTime(0);
-      setSelectedSeekTime(0);
-      scrubberPosition.value = withTiming(0);
-      setUserPitches([]);
-      setIsPlayingAudio(false);
-      setIsRecording(false);
-      setUserRecordingUri(null);
-      sound?.unloadAsync();
-      userSound?.unloadAsync();
+  // Load song data from both sources
+  const loadSongData = async () => {
+    try {
+      // First try to find in user songs
+      const storedSongs = await AsyncStorage.getItem('songs');
+      const userSongs = storedSongs ? JSON.parse(storedSongs) : [];
+      
+      let song = userSongs.find(s => s.id === songId);
+      let source = 'user';
+      
+      // If not found in user songs, check predefined songs
+      if (!song) {
+        song = initialSongs.find(s => s.id === songId);
+        source = 'predefined';
+      }
+      
+      // Fallback to first predefined song if no songId provided
+      if (!song && !songId) {
+        song = initialSongs[0];
+        source = 'predefined';
+      }
+      
+      if (song) {
+        console.log(`Loading song from ${source}:`, song.title);
+        setSelectedSong(song);
+        setSongSource(source);
+        
+        const duration = parseDuration(song.duration);
+        setTotalDuration(duration);
+        
+        // Handle pitches based on source
+        let originalPitches = [];
+        if (source === 'user' && song.pitches) {
+          // User song with processed pitches
+          originalPitches = song.pitches.map(p => ({ 
+            time: p.time, 
+            freq: typeof p.freq !== 'undefined' ? p.freq : midiToFreq(p.pitch) 
+          }));
+        } else if (source === 'predefined' && song.pitches) {
+          // Predefined song with MIDI pitches
+          originalPitches = song.pitches.map(p => ({ 
+            time: p.time, 
+            freq: midiToFreq(p.pitch) 
+          }));
+        }
+        
+        setOriginalReferencePitches(originalPitches);
+        setReferencePitches(originalPitches);
+        setOctaveShift(0);
+        setCurrentDisplayTime(0);
+        setSelectedSeekTime(0);
+        scrubberPosition.value = withTiming(0);
+        setUserPitches([]);
+        setIsPlayingAudio(false);
+        setIsRecording(false);
+        setUserRecordingUri(null);
+        
+        // Clean up existing audio
+        if (sound) {
+          await sound.unloadAsync();
+          setSound(null);
+        }
+        if (userSound) {
+          await userSound.unloadAsync();
+          setUserSound(null);
+        }
+      }
+    } catch (error) {
+      console.error('Error loading song data:', error);
     }
+  };
+
+  // Load song data when songId changes
+  useEffect(() => {
+    loadSongData();
   }, [songId]);
 
   // Apply octave shift
@@ -109,23 +165,44 @@ export default function PitchTrackerScreen() {
     }
   }, [octaveShift, originalReferencePitches]);
 
-  // Audio setup for original song
+  // Audio setup
   useEffect(() => {
     const setupAudio = async () => {
-      if (!selectedSong?.filename) return;
+      if (!selectedSong) return;
+      
       try {
         await sound?.unloadAsync();
+        
+        let audioSource;
+        if (songSource === 'user' && selectedSong.filename) {
+          // User song with audio file
+          audioSource = { uri: selectedSong.filename };
+          console.log('Loading user audio from:', selectedSong.filename);
+        } else if (songSource === 'predefined' && selectedSong.filename) {
+          // Predefined song
+          audioSource = selectedSong.filename;
+          console.log('Loading predefined audio:', selectedSong.filename);
+        } else {
+          console.log('No audio file available for this song');
+          return;
+        }
+        
         const { sound: newSound } = await Audio.Sound.createAsync(
-          selectedSong.filename,
+          audioSource,
           { shouldPlay: false, progressUpdateIntervalMillis: 30 }
         );
         setSound(newSound);
         newSound.setOnPlaybackStatusUpdate(onPlaybackStatusUpdate);
-      } catch (error) { console.error('Error loading audio:', error); }
+        console.log('Audio loaded successfully');
+      } catch (error) { 
+        console.error('Error loading audio:', error); 
+        // Don't set sound if loading fails
+        setSound(null);
+      }
     };
     setupAudio();
     return () => { sound?.unloadAsync(); };
-  }, [selectedSong]);
+  }, [selectedSong, songSource]);
 
   // Playback status handlers
   const onPlaybackStatusUpdate = useCallback((status) => {
@@ -316,9 +393,16 @@ export default function PitchTrackerScreen() {
     ); 
   }
 
-  if (!selectedSong) return <SafeAreaView style={styles.container}><View style={styles.centerContainer}><Text style={styles.title}>Loading Song...</Text></View></SafeAreaView>;
+  if (!selectedSong) return (
+    <SafeAreaView style={styles.container}>
+      <View style={styles.centerContainer}>
+        <Text style={styles.title}>Loading Song...</Text>
+      </View>
+    </SafeAreaView>
+  );
 
   const isActionActive = isRecording || isPlayingAudio || isPlayingUserRecording;
+  const hasAudioFile = sound !== null;
 
   return (
     <SafeAreaView style={styles.container}>
@@ -326,6 +410,17 @@ export default function PitchTrackerScreen() {
         <View style={styles.header}>
           <Text style={styles.title}>{selectedSong.title}</Text>
           <Text style={styles.subtitle}>by {selectedSong.artist}</Text>
+          <View style={styles.statusRow}>
+            <Text style={styles.statusText}>
+              {songSource === 'user' ? 'Your Song' : 'Sample Song'}
+            </Text>
+            {hasAudioFile && (
+              <Text style={styles.statusText}>• Audio Available</Text>
+            )}
+            {!hasAudioFile && (
+              <Text style={[styles.statusText, styles.noAudioText]}>• No Audio File</Text>
+            )}
+          </View>
         </View>
 
         <TimelineSelector
@@ -345,14 +440,21 @@ export default function PitchTrackerScreen() {
         />
 
         <View style={styles.controls}>
-          <TouchableOpacity
-            style={[styles.primaryButton, (isRecording || isPlayingUserRecording) && styles.disabledButton]}
-            onPress={handlePlayPauseAudio}
-            disabled={isRecording || isPlayingUserRecording}
-          >
-            {isPlayingAudio ? <Pause size={20} color="#fff" /> : <Play size={20} color="#fff" />}
-            <Text style={styles.primaryButtonText}>{isPlayingAudio ? 'Pause' : 'Play Audio'}</Text>
-          </TouchableOpacity>
+          {hasAudioFile ? (
+            <TouchableOpacity
+              style={[styles.primaryButton, (isRecording || isPlayingUserRecording) && styles.disabledButton]}
+              onPress={handlePlayPauseAudio}
+              disabled={isRecording || isPlayingUserRecording}
+            >
+              {isPlayingAudio ? <Pause size={20} color="#fff" /> : <Play size={20} color="#fff" />}
+              <Text style={styles.primaryButtonText}>{isPlayingAudio ? 'Pause' : 'Play Audio'}</Text>
+            </TouchableOpacity>
+          ) : (
+            <View style={styles.noAudioButton}>
+              <Text style={styles.noAudioButtonText}>No Audio File</Text>
+              <Text style={styles.noAudioButtonSubtext}>Upload song with audio to play</Text>
+            </View>
+          )}
 
           <TouchableOpacity
             style={[styles.primaryButton, isRecording && styles.recordingButton, (isPlayingAudio || isPlayingUserRecording) && styles.disabledButton]}
@@ -384,6 +486,26 @@ export default function PitchTrackerScreen() {
             <ChevronUp size={24} color={isActionActive ? '#ccc' : '#000'} />
           </TouchableOpacity>
         </View>
+
+        {!hasAudioFile && referencePitches.length > 0 && (
+          <View style={styles.infoBox}>
+            <Text style={styles.infoTitle}>Pitch Data Available</Text>
+            <Text style={styles.infoText}>
+              This song has pitch reference data for practice, but no audio file. 
+              You can still record your voice and compare against the reference pitches.
+            </Text>
+          </View>
+        )}
+
+        {!hasAudioFile && referencePitches.length === 0 && (
+          <View style={styles.warningBox}>
+            <Text style={styles.warningTitle}>Limited Functionality</Text>
+            <Text style={styles.warningText}>
+              This song has no audio file or pitch data. You can record your voice, 
+              but there won't be reference pitches to compare against.
+            </Text>
+          </View>
+        )}
       </ScrollView>
     </SafeAreaView>
   );
@@ -395,14 +517,72 @@ const styles = StyleSheet.create({
   centerContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 24 },
   header: { paddingTop: 32, marginBottom: 24 },
   title: { fontSize: 28, fontWeight: '700', color: '#000', marginBottom: 4, textAlign: 'center' },
-  subtitle: { fontSize: 14, color: '#666', lineHeight: 20, textAlign: 'center' },
+  subtitle: { fontSize: 14, color: '#666', lineHeight: 20, textAlign: 'center', marginBottom: 8 },
+  statusRow: { 
+    flexDirection: 'row', 
+    justifyContent: 'center', 
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 4,
+  },
+  statusText: { fontSize: 12, color: '#999', textAlign: 'center' },
+  noAudioText: { color: '#FF6B6B' },
   controls: { flexDirection: 'row', gap: 12, justifyContent: 'center', flexWrap: 'wrap', marginTop: 24 },
   primaryButton: { backgroundColor: '#000', paddingVertical: 12, paddingHorizontal: 20, borderRadius: 8, flexDirection: 'row', alignItems: 'center', gap: 8 },
   recordingButton: { backgroundColor: '#FF3B30' },
   playMineButton: { backgroundColor: '#5856D6' },
   disabledButton: { opacity: 0.5 },
   primaryButtonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+  noAudioButton: { 
+    backgroundColor: '#f8f9fa', 
+    paddingVertical: 12, 
+    paddingHorizontal: 20, 
+    borderRadius: 8, 
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#e9ecef',
+  },
+  noAudioButtonText: { color: '#6c757d', fontSize: 16, fontWeight: '600' },
+  noAudioButtonSubtext: { color: '#adb5bd', fontSize: 12, marginTop: 2 },
   octaveControls: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 20, marginTop: 16, marginBottom: 32 },
   octaveButton: { padding: 10, backgroundColor: '#f0f0f0', borderRadius: 50 },
   octaveText: { fontSize: 16, fontWeight: '600', color: '#333', minWidth: 90, textAlign: 'center' },
+  infoBox: {
+    backgroundColor: '#e8f4f8',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 20,
+    borderLeftWidth: 4,
+    borderLeftColor: '#007AFF',
+  },
+  infoTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#007AFF',
+    marginBottom: 4,
+  },
+  infoText: {
+    fontSize: 14,
+    color: '#333',
+    lineHeight: 20,
+  },
+  warningBox: {
+    backgroundColor: '#fff3cd',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 20,
+    borderLeftWidth: 4,
+    borderLeftColor: '#ffc107',
+  },
+  warningTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#856404',
+    marginBottom: 4,
+  },
+  warningText: {
+    fontSize: 14,
+    color: '#856404',
+    lineHeight: 20,
+  },
 });
