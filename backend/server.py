@@ -7,7 +7,7 @@ app = Flask(__name__)
 def get_volume_decibel(rms):
     return 20 * np.log10(rms + 1e-10)
 
-def auto_correlate(buf, sample_rate, min_volume_db=-55.0):
+def auto_correlate(buf, sample_rate, min_volume_db=50.0):
     SIZE = len(buf)
     rms = np.sqrt(np.mean(buf**2))
     decibel = get_volume_decibel(rms)

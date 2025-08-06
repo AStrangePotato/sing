@@ -200,18 +200,12 @@ export default function AddSongScreen() {
           {loading ? (
             <View style={styles.loadingContainer}>
               <ActivityIndicator color="#fff" size="small" />
-              <Text style={styles.addButtonText}>Processing...</Text>
+              <Text style={styles.addButtonText}>&nbsp;Processing...</Text>
             </View>
           ) : (
             <Text style={styles.addButtonText}>Add Song to Library</Text>
           )}
         </TouchableOpacity>
-
-        <View style={styles.infoContainer}>
-          <Text style={styles.infoText}>
-            * Required fields. Supported formats: MP3, WAV, M4A, FLAC
-          </Text>
-        </View>
       </View>
     </ScrollView>
   );

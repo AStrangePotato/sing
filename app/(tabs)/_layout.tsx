@@ -1,5 +1,5 @@
 import { Tabs } from 'expo-router';
-import { Chrome as Home, Mic, Music, Gamepad2, Plus } from 'lucide-react-native';
+import { Chrome as Home, Mic, Music, FolderSearch} from 'lucide-react-native';
 
 export default function TabLayout() {
   return (
@@ -44,7 +44,7 @@ export default function TabLayout() {
         options={{
           title: 'Library',
           tabBarIcon: ({ size, color }) => (
-            <Music size={size} color={color} />
+            <FolderSearch size={size} color={color} />
           ),
         }}
       />
@@ -53,7 +53,7 @@ export default function TabLayout() {
         options={{
           title: 'Playground',
           tabBarIcon: ({ size, color }) => (
-            <Gamepad2 size={size} color={color} />
+            <Music size={size} color={color} />
           ),
         }}
       />

@@ -164,7 +164,7 @@ export default function LibraryScreen() {
             </Text>
           </View>
           <TouchableOpacity onPress={handleAddSong} style={styles.addButton}>
-            <Plus size={24} color="#007AFF" />
+            <Plus size={24} color="#000" />
           </TouchableOpacity>
         </View>
 
@@ -249,7 +249,7 @@ const styles = StyleSheet.create({
   },
   addButton: {
     padding: 8,
-    backgroundColor: '#f0f8ff',
+    backgroundColor: '#e5e5e5',
     borderRadius: 12,
   },
   searchContainer: {
