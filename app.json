@@ -32,7 +32,8 @@
       }
     },
     "android": {
-      "package": "com.astrangepotato.vocalign"
+      "package": "com.astrangepotato.vocalign",
+      "edgeToEdgeEnabled": true
     }
   }
 }

@@ -37,9 +37,9 @@ export default function HomeScreen() {
             <View style={styles.featureIcon}>
               <TrendingUp size={24} color="#666" />
             </View>
-            <Text style={styles.featureTitle}>Progress Tracking</Text>
+            <Text style={styles.featureTitle}>Pitch Detection</Text>
             <Text style={styles.featureDescription}>
-              Monitor your singing improvement over time
+              Tune your instruments or test your pitch
             </Text>
           </View>
         </View>

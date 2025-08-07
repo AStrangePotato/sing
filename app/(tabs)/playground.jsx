@@ -45,61 +45,57 @@ export default function PlaygroundScreen() {
   const [targetNote, setTargetNote] = useState(generateRandomNote);
   const [userNote, setUserNote] = useState('--');
   const [isListening, setIsListening] = useState(false);
+  const pitchSubscriptionRef = React.useRef(null);
 
   const handleNewNote = useCallback(() => {
     setTargetNote(generateRandomNote());
     setUserNote('--');
   }, []);
 
+  const startListening = useCallback(async () => {
+    if (!permissionGranted) {
+      console.warn('Microphone permission not granted.');
+      return;
+    }
+    
+    try {
+      await Pitchy.init({ bufferSize: 2048, minVolume: 60 });
+      pitchSubscriptionRef.current = Pitchy.addListener((data) => {
+        if (data.pitch > 0) {
+          setUserNote(getNoteFromFreq(data.pitch));
+        } else {
+          setUserNote('--');
+        }
+      });
+      await Pitchy.start();
+      setIsListening(true);
+    } catch (error) {
+      console.error('Error starting pitch detection:', error);
+      setIsListening(false);
+    }
+  }, [permissionGranted]);
+
+  const stopListening = useCallback(async () => {
+    try {
+      if (pitchSubscriptionRef.current) {
+        await Pitchy.stop();
+        pitchSubscriptionRef.current.remove();
+        pitchSubscriptionRef.current = null;
+      }
+      setIsListening(false);
+    } catch (error) {
+      console.error('Error stopping pitch detection:', error);
+    }
+  }, []);
+
   useFocusEffect(
     useCallback(() => {
-      let pitchSubscription = null;
-      let isMounted = true;
-      const isListeningRef = { current: false };
-  
-      const startListening = async () => {
-        if (!permissionGranted || isListeningRef.current) return;
-  
-        try {
-          await Pitchy.init({ bufferSize: 2048, minVolume: 60 });
-          pitchSubscription = Pitchy.addListener((data) => {
-            if (!isMounted) return;
-            if (data.pitch > 0) {
-              setUserNote(getNoteFromFreq(data.pitch));
-            } else {
-              setUserNote('--');
-            }
-          });
-          await Pitchy.start();
-          isListeningRef.current = true;
-          if (isMounted) setIsListening(true);
-        } catch (error) {
-          console.error('Error starting pitch detection:', error);
-          isListeningRef.current = false;
-          if (isMounted) setIsListening(false);
-        }
-      };
-  
-      const stopListening = async () => {
-        if (!isListeningRef.current) return;
-  
-        try {
-          await Pitchy.stop();
-          pitchSubscription?.remove();
-          isListeningRef.current = false;
-          if (isMounted) setIsListening(false);
-        } catch (error) {
-          console.error('Error stopping pitch detection:', error);
-        }
-      };
-  
       startListening();
-  
+
       return () => {
-        isMounted = false;
         stopListening();
       };
-    }, [permissionGranted])
+    }, [startListening, stopListening])
   );
   
   if (!permissionGranted) {
@@ -154,7 +150,7 @@ export default function PlaygroundScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#fff' },
-  content: { flex: 1, paddingHorizontal: 24, paddingTop: 32, justifyContent: 'space-between', paddingBottom: 32 },
+  content: { flex: 1, paddingHorizontal: 24, paddingTop: 90, justifyContent: 'space-between', paddingBottom: 32 },
   centerContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 24 },
   header: { marginBottom: 48, alignItems: 'center' },
   title: { fontSize: 28, fontWeight: '700', color: '#000', marginBottom: 4 },
@@ -210,4 +206,3 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 });
- 

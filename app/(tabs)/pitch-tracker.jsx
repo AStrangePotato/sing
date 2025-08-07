@@ -410,17 +410,6 @@ export default function PitchTrackerScreen() {
         <View style={styles.header}>
           <Text style={styles.title}>{selectedSong.title}</Text>
           <Text style={styles.subtitle}>by {selectedSong.artist}</Text>
-          <View style={styles.statusRow}>
-            <Text style={styles.statusText}>
-              {songSource === 'user' ? 'Your Song' : 'Sample Song'}
-            </Text>
-            {hasAudioFile && (
-              <Text style={styles.statusText}>• Audio Available</Text>
-            )}
-            {!hasAudioFile && (
-              <Text style={[styles.statusText, styles.noAudioText]}>• No Audio File</Text>
-            )}
-          </View>
         </View>
 
         <TimelineSelector
@@ -513,7 +502,7 @@ export default function PitchTrackerScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#fff' },
-  content: { flex: 1, paddingHorizontal: 24 },
+  content: { flex: 1, paddingHorizontal: 24, paddingTop: 50 },
   centerContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 24 },
   header: { paddingTop: 32, marginBottom: 24 },
   title: { fontSize: 28, fontWeight: '700', color: '#000', marginBottom: 4, textAlign: 'center' },

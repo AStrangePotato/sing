@@ -12,5 +12,5 @@
     ".expo/types/**/*.ts",
     "expo-env.d.ts",
     "nativewind-env.d.ts"
-, "components/PitchVisualizer.jsx", "components/TimelineSelector.jsx", "components/TimelineSelector.jsx", "app/(tabs)/playground.jsx", "app/(tabs)/pitch-tracker.jsx"  ]
+, "components/PitchVisualizer.jsx", "components/TimelineSelector.jsx", "components/TimelineSelector.jsx", "app/(tabs)/playground.jsx", "app/(tabs)/pitch-tracker.jsx", "hooks/useAudioManager.js"  ]
 }

@@ -5,15 +5,15 @@ import { Svg, Circle, Line } from 'react-native-svg';
 
 const { width: screenWidth } = Dimensions.get('window');
 const GRAPH_WIDTH = screenWidth - 48; // Adjusted for padding
-const GRAPH_HEIGHT = 250;
+const GRAPH_HEIGHT = 270;
 const PIXELS_PER_SECOND = 60;
 const SCROLL_OFFSET = GRAPH_WIDTH / 3; // Keep playback head 1/3 from left
 
 // Frequency to Y position converter
 const freqToY = (freq) => {
   if (!freq || freq <= 0) return GRAPH_HEIGHT;
-  const minFreq = 100;
-  const maxFreq = 350;
+  const minFreq = 90;
+  const maxFreq = 400;
   const logMinFreq = Math.log2(minFreq);
   const logMaxFreq = Math.log2(maxFreq);
   const padding = 25;
@@ -47,11 +47,18 @@ export default function PitchVisualizer({
   
   // Y-axis labels
   const yAxisLabels = [
-    { note: 'E4', freq: 329.63 }, { note: 'C4', freq: 261.63 },
-    { note: 'A3', freq: 220.00 }, { note: 'G3', freq: 196.00 },
-    { note: 'D3', freq: 146.83 }, { note: 'C3', freq: 130.81 },
+    { note: 'A2', freq: 110.00 },
+    { note: 'D3', freq: 146.83 },
+    { note: 'F3', freq: 174.61 },
+    { note: 'G3', freq: 196.00 },
+    { note: 'A3', freq: 220.00 },
+    { note: 'B3', freq: 246.94 },
+    { note: 'C4', freq: 261.63 },
+    { note: 'D4', freq: 293.66 },
+    { note: 'F4', freq: 349.23 },
   ];
-
+  
+  
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Pitch Visualization</Text>

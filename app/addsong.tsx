@@ -132,6 +132,7 @@ export default function AddSongScreen() {
       <View style={styles.content}>
         <Text style={styles.title}>Add New Song</Text>
         <Text style={styles.subtitle}>Fill in the details and select an audio file</Text>
+        <Text style={styles.subtitle}>It is recommended to upload a segment of a song (under one minute) for best performance</Text>
 
         {/* Song Title Input */}
         <View style={styles.inputContainer}>
@@ -219,6 +220,7 @@ const styles = StyleSheet.create({
   content: {
     padding: 20,
     paddingBottom: 40,
+    paddingTop: 80,
   },
   title: { 
     fontSize: 28, 
