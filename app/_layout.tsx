@@ -3,6 +3,7 @@ import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useFrameworkReady } from '@/hooks/useFrameworkReady';
 import * as NavigationBar from 'expo-navigation-bar';
+import { Platform } from 'react-native';
 
 
 export default function RootLayout() {
@@ -10,7 +11,10 @@ export default function RootLayout() {
 
 
   useEffect(() => {
-    //NavigationBar.setStyle('dark');
+    if (Platform.OS === 'android') {
+      NavigationBar.setBackgroundColorAsync('white');
+      NavigationBar.setButtonStyleAsync('dark');
+    }
   }, []);
 
   return (
@@ -18,7 +22,7 @@ export default function RootLayout() {
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="+not-found" />
       </Stack>
-      <StatusBar style="auto" />
+      <StatusBar style="dark" />
     </>
   );
 }

@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 import { useMicrophonePermission } from '../../hooks/useMicrophonePermission';
@@ -45,19 +45,15 @@ export default function PlaygroundScreen() {
   const [targetNote, setTargetNote] = useState(generateRandomNote);
   const [userNote, setUserNote] = useState('--');
   const [isListening, setIsListening] = useState(false);
-  const pitchSubscriptionRef = React.useRef(null);
+  const pitchSubscriptionRef = useRef(null);
 
   const handleNewNote = useCallback(() => {
     setTargetNote(generateRandomNote());
     setUserNote('--');
   }, []);
 
+  // Stable callbacks that don't depend on component state
   const startListening = useCallback(async () => {
-    if (!permissionGranted) {
-      console.warn('Microphone permission not granted.');
-      return;
-    }
-    
     try {
       await Pitchy.init({ bufferSize: 2048, minVolume: 60 });
       pitchSubscriptionRef.current = Pitchy.addListener((data) => {
@@ -73,29 +69,48 @@ export default function PlaygroundScreen() {
       console.error('Error starting pitch detection:', error);
       setIsListening(false);
     }
-  }, [permissionGranted]);
+  }, []);
 
   const stopListening = useCallback(async () => {
     try {
+      await Pitchy.stop();
       if (pitchSubscriptionRef.current) {
-        await Pitchy.stop();
         pitchSubscriptionRef.current.remove();
         pitchSubscriptionRef.current = null;
       }
-      setIsListening(false);
     } catch (error) {
-      console.error('Error stopping pitch detection:', error);
+      // This can happen if it's already stopped, which is fine.
+      console.log('Error stopping pitch detection (may be expected on blur):', error);
+    } finally {
+      // Ensure state is always reset
+      setIsListening(false);
+      setUserNote('--');
     }
   }, []);
 
   useFocusEffect(
     useCallback(() => {
-      startListening();
+      if (!permissionGranted) {
+        return;
+      }
+      
+      let isActive = true;
 
+      const setup = async () => {
+        // Only start if the screen is still active
+        if (isActive) {
+          await startListening();
+        }
+      };
+
+      setup();
+
+      // Cleanup function runs when the screen is blurred
       return () => {
+        isActive = false;
         stopListening();
       };
-    }, [startListening, stopListening])
+    }, [permissionGranted, startListening, stopListening])
   );
   
   if (!permissionGranted) {
