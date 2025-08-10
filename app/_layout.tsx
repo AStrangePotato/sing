@@ -12,7 +12,6 @@ export default function RootLayout() {
 
   useEffect(() => {
     if (Platform.OS === 'android') {
-      NavigationBar.setBackgroundColorAsync('white');
       NavigationBar.setButtonStyleAsync('dark');
     }
   }, []);
