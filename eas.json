@@ -12,8 +12,7 @@
       "distribution": "internal"
     },
     "production": {
-      "autoIncrement": true,
-      "clearCache": true
+      "autoIncrement": true
     }
   },
   "submit": {
